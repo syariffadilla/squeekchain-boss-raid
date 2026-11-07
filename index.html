@@ -120,6 +120,9 @@
         0%,100% { transform: translate(0,0); } 20% { transform: translate(-7px,3px); }
         40% { transform: translate(6px,-4px); } 60% { transform: translate(-5px,-2px); } 80% { transform: translate(4px,2px); }
       }
+      /* Idle "breathing": the boss never looks frozen, even when the wheel is still. */
+      .arena-img img { animation: breathe 7s ease-in-out infinite; }
+      @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.012); } }
       .boss-tag {
         position: absolute; left: 16px; bottom: 14px; line-height: 1.25;
         background: rgba(10, 6, 2, 0.78); border: 1px solid rgba(240,168,50,0.55);
@@ -211,6 +214,12 @@
         background: var(--amber-soft); font-size: 14.5px;
       }
       .frenzy.on { display: block; }
+      .sleep-note {
+        margin-top: 14px; border: 1px solid var(--line); background: var(--surface-2);
+        border-radius: 10px; padding: 10px 14px; font-size: 14.5px; color: var(--ink-soft);
+      }
+      .sleep-note[hidden] { display: none; }
+      .attack-hint { margin-top: 12px; }
       .mystats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
       .mystats .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-faint); font-weight: 600; }
       .mystats .v { font-family: "IBM Plex Mono", monospace; font-size: 21px; font-weight: 600; }
@@ -264,7 +273,7 @@
       .fineprint { margin-top: 18px; font-size: 12.5px; color: var(--ink-faint); max-width: 78ch; }
 
       @media (prefers-reduced-motion: reduce) {
-        .arena-img.shake img, .dot.active { animation: none; }
+        .arena-img img, .arena-img.shake img, .dot.active { animation: none; }
         .float-dmg { animation-duration: 0.01s; }
         html { scroll-behavior: auto; }
       }
@@ -360,7 +369,9 @@
             <div class="charge-row"><span>WHEEL CHARGE</span><span><span id="chargeVal">0.0</span> m of wheel</span></div>
             <div class="charge-bar"><div class="charge-fill" id="chargeFill"></div></div>
             <button type="button" class="attack-btn" id="attackBtn">ATTACK THE BOSS</button>
-            <div class="frenzy" id="frenzyBox">FRENZY ACTIVE — the wheel is spinning (<span id="frenzyRpm">0</span> RPM). All damage ×2. Go now.</div>
+            <div class="frenzy" id="frenzyBox">FRENZY ACTIVE — the wheel is spinning (<span id="frenzyRpm">–</span> RPM). All damage ×2. Go now.</div>
+            <div class="sleep-note" id="sleepNote" hidden>💤 <b>Squeektoshi is sleeping.</b> No wheel movement for <b id="sleepFor">–</b> since you opened this page — Wheel Charge only grows while the wheel turns. Your attacks still land a base poke, and the raid resumes the moment he wakes.</div>
+            <p class="hint attack-hint">Even at 0 charge your attack still lands a base poke — strike again within 8s to build a combo.</p>
           </div>
           <div class="panel">
             <h3>Your contribution this session</h3>
@@ -403,7 +414,7 @@
           <div class="step">
             <div class="n">STEP 3</div>
             <h3>Block progress = boss HP</h3>
-            <p>Every <b class="mono">9,546</b> work units move the block progress forward. Full progress of <b class="mono">1,000,000,000</b> = the boss falls and a new block is born. Current progress: <b class="mono" id="howProgress">–</b>.</p>
+            <p>At the live rate, <b class="mono"><span id="howWorkPer">–</span></b> work units complete 1,000 blocks. Full progress of <b class="mono">1,000,000,000</b> = the boss falls and a new block is born. Current progress: <b class="mono" id="howProgress">–</b>.</p>
           </div>
           <div class="step">
             <div class="n">STEP 4</div>
@@ -474,14 +485,15 @@
           tank:     { mult: 0.7, critChance: 0.30, critMult: 3.0, chargeRate: 1 }
         };
 
-        // Fallback snapshot captured at build time (5 Nov 2026, 18:47 WIB) so the
+        // Fallback snapshot captured at cleanup time (7 Nov 2026, 23:27 WIB) so the
         // page shows real last-known numbers even before the first fetch lands.
         var SNAPSHOT = {
           coreStatus: "IDLE", rpmMilli: 0, speedMmPerSecond: 0,
-          distanceMm: 3351326, cumulativeWorkUnits: "3817",
-          settledThroughRound: "239", blockHeight: "366",
-          blockProgress: "425653103", workPerThousandBlocks: "9546",
-          pendingWorkUnits: 0, generatedAt: "2026-11-05T11:47:11.145Z"
+          distanceMm: 0, cumulativeWorkUnits: "18553",
+          settledThroughRound: "555", blockHeight: "1999",
+          blockProgress: "322478319", workPerThousandBlocks: "8238",
+          pendingWorkUnits: 0, generatedAt: "2026-11-07T16:27:13.511Z",
+          transactionHash: "0x21308f037e33461624829b64542d421e52027ab4980246299ee50b70fd56ad89"
         };
 
         var state = {
@@ -493,6 +505,7 @@
           lastDistanceMm: null,
           lastSettledRound: null,
           lastCoreStatus: null,
+          lastMoveAt: 0,
           live: false,
           phase: 1
         };
@@ -568,9 +581,16 @@
 
           // how-it-works live values
           $("howStatus").textContent = d.coreStatus;
+          $("howWorkPer").textContent = fmtInt(Number(d.workPerThousandBlocks));
           $("howDistance").textContent = fmtInt(distM) + " m";
           $("howRound").textContent = "#" + d.settledThroughRound;
           $("howProgress").textContent = fmtInt(progress) + " / 1,000,000,000";
+
+          // latest settlement proof (live tx, not the build-time one)
+          if (d.txHash) {
+            $("txLink").href = "https://sepolia.etherscan.io/tx/" + d.txHash;
+            $("txLink").textContent = d.txHash;
+          }
 
           // telemetry
           $("tStatus").innerHTML = d.coreStatus + ' <small>(freshness: online)</small>';
@@ -588,9 +608,14 @@
           $("frenzyBox").className = "frenzy" + (frenzy ? " on" : "");
           if (frenzy) $("frenzyRpm").textContent = fmtDec(rpm, 0);
 
-          // wheel travel -> charge
+          // sleep note: honest idle state (no invented numbers)
+          $("sleepNote").hidden = d.coreStatus === "ACTIVE";
+
+          // wheel travel -> charge (capped per poll: a bigger jump is a counter
+          // reset, not a hamster teleporting)
           if (state.lastDistanceMm !== null && d.distanceMm > state.lastDistanceMm) {
-            var gainedM = (d.distanceMm - state.lastDistanceMm) / 1000;
+            var gainedM = Math.min((d.distanceMm - state.lastDistanceMm) / 1000, 50);
+            state.lastMoveAt = Date.now();
             var rate = CLASSES[state.cls].chargeRate;
             state.charge += gainedM * rate;
             state.sessionMeters += gainedM;
@@ -601,6 +626,7 @@
             // distance changed without gain shouldn't happen; keep baseline fresh
           }
           state.lastDistanceMm = d.distanceMm;
+          if (state.lastMoveAt === 0) state.lastMoveAt = Date.now();
 
           // round settlement event
           if (state.lastSettledRound !== null && Number(d.settledThroughRound) > state.lastSettledRound) {
@@ -636,7 +662,8 @@
             blockProgress: b.anchor.blockProgress,
             workPerThousandBlocks: b.anchor.workPerThousandBlocks,
             pendingWorkUnits: Math.max(0, projWork - anchorWork),
-            generatedAt: raw.generatedAt
+            generatedAt: raw.generatedAt,
+            txHash: b.anchor.transactionHash || null
           };
         }
 
@@ -660,6 +687,11 @@
         // countdowns: round close (rounds align to 10-minute UTC boundaries) + weekly reset
         function tick() {
           var now = new Date();
+          // idle clock: how long the wheel has been still since this page opened
+          if (state.lastMoveAt) {
+            var idleMin = Math.floor((Date.now() - state.lastMoveAt) / 60000);
+            $("sleepFor").textContent = idleMin < 1 ? "under a minute" : idleMin + (idleMin === 1 ? " minute" : " minutes");
+          }
           var msIntoRound = (now.getUTCMinutes() % 10) * 60000 + now.getUTCSeconds() * 1000 + now.getUTCMilliseconds();
           var left = 600000 - msIntoRound;
           var mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
@@ -740,7 +772,7 @@
         // boot: paint snapshot immediately, then go live
         render(SNAPSHOT, false);
         log("Connected to the arena. This week's boss: <b>The Gnawfather</b>, Block Boss #" + (Number(SNAPSHOT.blockHeight) + 1) + ". Its HP is the on-chain block progress.", "sys");
-        log("Initial data loaded from the API snapshot taken at 18:47 WIB, then refreshed live every ±15 seconds.", "sys");
+        log("Initial data loaded from the API snapshot taken at 23:27 WIB, 7 Nov 2026, then refreshed live every ±15 seconds.", "sys");
         poll();
         setInterval(poll, 15000);
         tick();

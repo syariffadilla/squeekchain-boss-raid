@@ -30,4 +30,6 @@ Sepolia contracts (from the official docs):
 
 This is a community project for the Squeekchain Buildooooor badge, submitted via Direct submission (self-built, not IMD): the live site runs on the builder's own domain, and verification needs the DNS record and page tag issued by Genesis plus this repository line in the README.
 
-Status: live on https://raid.x-mood.my.id/ — submission form, DNS record, page tag and Verify still pending.
+Status: live on https://raid.x-mood.my.id/ — submission form saved, verification in progress.
+
+squeekchain-project: 12f4e5ee-b67b-4dc9-80e5-819166155a8e

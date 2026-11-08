@@ -4,9 +4,9 @@ A weekly boss-raid browser game for the Squeekchain Genesis Code lane.
 
 Live: https://raid.x-mood.my.id/ (custom domain, Vercel DNS). Also at https://squeekchain-boss-raid.vercel.app/.
 
-The boss HP is the live Squeek block progress from `https://api.squeekchain.com/v1/status`, polled every 15 seconds. Damage comes from Squeektoshi's real wheel work: settled rounds and cumulative work units. Players pick a raid class (Gnawer, Sprinter, or Bulwark), build Wheel Charge, and attack with crits, combos, and Frenzy mode when the wheel is actually spinning. The boss resets every Monday at 00:00 UTC.
+The boss HP is the live Squeek block progress from `https://api.squeekchain.com/v1/status`, polled every 15 seconds. The boss is whichever block is in progress — a new boss about once a minute. Damage comes from the real wheel distance travelled while the page is open (Wheel Charge), plus a base poke. Players pick a raid class (Gnawer, Sprinter, or Bulwark), build Wheel Charge, and attack with crits, combos, and Frenzy mode when the wheel is actually spinning. Weekly totals (damage, attacks, best hit, wheel meters) are saved in the browser and reset every Monday at 00:00 UTC.
 
-No wallet, no token, and no betting — points only, with progress saved locally in the browser.
+No wallet, no token, and no betting — points only. Weekly totals are saved in your browser (localStorage); session stats reset when the page reloads.
 
 ## Play
 
@@ -30,6 +30,6 @@ Sepolia contracts (from the official docs):
 
 This is a community project for the Squeekchain Buildooooor badge, submitted via Direct submission (self-built, not IMD): the live site runs on the builder's own domain, and verification needs the DNS record and page tag issued by Genesis plus this repository line in the README.
 
-Status: live on https://raid.x-mood.my.id/ — submission form saved, verification in progress.
+Status: live on https://raid.x-mood.my.id/ — verified 8 Nov 2026, IN REVIEW by the Squeekchain team.
 
 squeekchain-project: 12f4e5ee-b67b-4dc9-80e5-819166155a8e

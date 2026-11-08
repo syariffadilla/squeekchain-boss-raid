@@ -225,6 +225,9 @@
       .mystats .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-faint); font-weight: 600; }
       .mystats .v { font-family: "IBM Plex Mono", monospace; font-size: 21px; font-weight: 600; }
       .combo-hot { color: var(--red-bright); }
+      .weekstats { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+      .weekstats h4 { margin: 0 0 10px; font-size: 15px; font-weight: 700; }
+      .weekstats h4 .hint { color: var(--ink-soft); font-size: 13px; font-weight: 400; }
 
       /* ---------- log ---------- */
       .log {
@@ -302,7 +305,7 @@
         <div class="hero-top">
           <div>
             <h1>Weekly <span class="accent">Boss Raid</span></h1>
-            <p class="hero-sub">One boss every week. Its HP isn't made up — boss HP is <b>Squeekchain block progress</b>, and what chips it away is the <b>real distance a real hamster runs on its wheel</b>, recorded on-chain on Sepolia. When the hamster runs, the boss dies. When the hamster sleeps, the raid stops with it.</p>
+            <p class="hero-sub">A new boss every block — about once a minute. Its HP isn't made up — boss HP is <b>Squeekchain block progress</b>, and what chips it away is the <b>real distance a real hamster runs on its wheel</b>, recorded on-chain on Sepolia. Your week runs Monday to Monday: damage and wheel meters you bank are saved in your browser and reset Monday 00:00 UTC.</p>
           </div>
           <div class="week-box">
             <div class="wk-label">Raid resets (Monday 00:00 UTC)</div>
@@ -385,6 +388,15 @@
               <div><div class="k">Combo</div><div class="v" id="myCombo">×0</div></div>
               <div><div class="k">Wheel distance while you're here</div><div class="v" id="myMeters">0.0 m</div></div>
             </div>
+            <div class="weekstats">
+              <h4>Your week <span class="hint" id="weekLabel">resets Monday 00:00 UTC</span></h4>
+              <div class="mystats">
+                <div><div class="k">Week damage</div><div class="v" id="weekDamage">0</div></div>
+                <div><div class="k">Week attacks</div><div class="v" id="weekHits">0</div></div>
+                <div><div class="k">Week best hit</div><div class="v" id="weekBest">0</div></div>
+                <div><div class="k">Week wheel meters</div><div class="v" id="weekMeters">0.0 m</div></div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -420,7 +432,7 @@
           <div class="step">
             <div class="n">STEP 4</div>
             <h3>Weekly reset</h3>
-            <p>The raid runs weekly and resets every <b>Monday 00:00 UTC</b>. The next boss takes the number of whichever block is in progress — so no two weeks ever face quite the same boss.</p>
+            <p>Your weekly totals (damage, attacks, best hit, wheel meters) are saved in your browser and reset every <b>Monday 00:00 UTC</b>. The boss itself is whichever block is in progress — a new boss about once a minute — so no two visits ever face quite the same boss.</p>
           </div>
         </div>
       </section>
@@ -464,9 +476,9 @@
           <div>
             <b>Raid rules</b>
             <ul>
-              <li>Boss = the Squeekchain block currently in progress</li>
-              <li>Damage = real wheel work units, settled per 10-minute round</li>
-              <li>Resets every Monday 00:00 UTC</li>
+              <li>Boss = the Squeekchain block currently in progress (a new boss about once a minute)</li>
+              <li>Damage = real wheel distance since you opened the page, spent as Wheel Charge</li>
+              <li>Your weekly totals are saved in your browser and reset every Monday 00:00 UTC</li>
             </ul>
           </div>
         </div>
@@ -486,8 +498,10 @@
           tank:     { mult: 0.7, critChance: 0.30, critMult: 3.0, chargeRate: 1 }
         };
 
-        // Fallback snapshot captured at cleanup time (7 Nov 2026, 23:27 WIB) so the
-        // page shows real last-known numbers even before the first fetch lands.
+        // Fallback snapshot captured at cleanup time (7 Nov 2026, 23:27 WIB), shown
+        // ONLY if the live API cannot be reached at all. distanceMm was not captured
+        // (0) — it must never seed the charge baseline, or the first live poll
+        // would gift up to 50 m of free charge.
         var SNAPSHOT = {
           coreStatus: "IDLE", rpmMilli: 0, speedMmPerSecond: 0,
           distanceMm: 0, cumulativeWorkUnits: "18553",
@@ -497,8 +511,36 @@
           transactionHash: "0x21308f037e33461624829b64542d421e52027ab4980246299ee50b70fd56ad89"
         };
 
+        // ---- weekly totals, saved in this browser (localStorage) ----
+        // Week key = the Monday (UTC) that started the current raid week.
+        function mondayKey(d) {
+          var t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+          var dow = (t.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+          t.setUTCDate(t.getUTCDate() - dow);
+          return t.toISOString().slice(0, 10);
+        }
+        var STORE_KEY = "squeek-raid-v1";
+        var store = { weekKey: mondayKey(new Date()), cls: "gnawer", week: { damage: 0, hits: 0, best: 0, meters: 0 } };
+        try {
+          var parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+          if (parsed && parsed.weekKey === store.weekKey && parsed.week) {
+            store.week = { damage: +parsed.week.damage || 0, hits: +parsed.week.hits || 0, best: +parsed.week.best || 0, meters: +parsed.week.meters || 0 };
+          }
+          if (parsed && (parsed.cls === "gnawer" || parsed.cls === "sprinter" || parsed.cls === "tank")) store.cls = parsed.cls;
+        } catch (e) { /* private mode / storage off: weekly totals just don't persist */ }
+        function saveStore() {
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+        }
+        function renderWeek() {
+          $("weekDamage").textContent = fmtInt(store.week.damage);
+          $("weekHits").textContent = fmtInt(store.week.hits);
+          $("weekBest").textContent = fmtInt(store.week.best);
+          $("weekMeters").textContent = fmtDec(store.week.meters, 1) + " m";
+          $("weekLabel").textContent = "week of " + store.weekKey + " · resets Monday 00:00 UTC";
+        }
+
         var state = {
-          cls: "gnawer",
+          cls: store.cls,
           charge: 0,            // meters of wheel travel banked
           sessionMeters: 0,     // wheel meters travelled while this page is open
           myDamage: 0, hits: 0, crits: 0, best: 0, combo: 0,
@@ -508,6 +550,7 @@
           lastCoreStatus: null,
           lastMoveAt: 0,
           live: false,
+          lastLiveAt: 0,
           phase: 1
         };
 
@@ -613,20 +656,25 @@
           $("sleepNote").hidden = d.coreStatus === "ACTIVE";
 
           // wheel travel -> charge (capped per poll: a bigger jump is a counter
-          // reset, not a hamster teleporting)
-          if (state.lastDistanceMm !== null && d.distanceMm > state.lastDistanceMm) {
-            var gainedM = Math.min((d.distanceMm - state.lastDistanceMm) / 1000, 50);
-            state.lastMoveAt = Date.now();
-            var rate = CLASSES[state.cls].chargeRate;
-            state.charge += gainedM * rate;
-            state.sessionMeters += gainedM;
-            renderCharge();
-            $("myMeters").textContent = fmtDec(state.sessionMeters, 1) + " m";
+          // reset, not a hamster teleporting). Charge comes ONLY from live polls,
+          // and only once a live baseline exists: the baked snapshot's distance
+          // is 0, so letting it seed the baseline would gift up to 50 m of
+          // free charge on the first live poll.
+          if (isLive) {
+            if (state.lastDistanceMm !== null && d.distanceMm > state.lastDistanceMm) {
+              var gainedM = Math.min((d.distanceMm - state.lastDistanceMm) / 1000, 50);
+              state.lastMoveAt = Date.now();
+              var rate = CLASSES[state.cls].chargeRate;
+              state.charge += gainedM * rate;
+              state.sessionMeters += gainedM;
+              store.week.meters += gainedM;
+              saveStore();
+              renderCharge();
+              renderWeek();
+              $("myMeters").textContent = fmtDec(state.sessionMeters, 1) + " m";
+            }
+            state.lastDistanceMm = d.distanceMm;
           }
-          if (state.lastDistanceMm !== null && d.distanceMm !== state.lastDistanceMm) {
-            // distance changed without gain shouldn't happen; keep baseline fresh
-          }
-          state.lastDistanceMm = d.distanceMm;
           if (state.lastMoveAt === 0) state.lastMoveAt = Date.now();
 
           // round settlement event
@@ -672,22 +720,30 @@
         function poll() {
           if (fetching) return;
           fetching = true;
-          fetch(API, { cache: "no-store" })
+          var ctrl = ("AbortController" in window) ? new AbortController() : null;
+          var timer = null;
+          if (ctrl) timer = setTimeout(function () { ctrl.abort(); }, 8000);
+          fetch(API, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
             .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
             .then(function (raw) {
               state.live = true;
+              state.lastLiveAt = Date.now();
               render(normalize(raw), true);
             })
             .catch(function () {
               if (!state.live) render(SNAPSHOT, false);
               else $("stConn").innerHTML = '<span class="warn">API connection lost — last data stays on screen</span>';
             })
-            .finally(function () { fetching = false; });
+            .finally(function () { if (timer) clearTimeout(timer); fetching = false; });
         }
 
         // countdowns: round close (rounds align to 10-minute UTC boundaries) + weekly reset
         function tick() {
           var now = new Date();
+          // stale-data honesty: if the last good poll is over 60 s old, say so
+          if (state.live && state.lastLiveAt && Date.now() - state.lastLiveAt > 60000) {
+            $("stConn").innerHTML = '<span class="warn">Live data is stale — last update ' + Math.floor((Date.now() - state.lastLiveAt) / 60000) + ' min ago</span>';
+          }
           // idle clock: how long the wheel has been still since this page opened
           if (state.lastMoveAt) {
             var idleMin = Math.floor((Date.now() - state.lastMoveAt) / 60000);
@@ -719,6 +775,8 @@
             card.classList.add("sel");
             card.setAttribute("aria-checked", "true");
             state.cls = card.getAttribute("data-class");
+            store.cls = state.cls;
+            saveStore();
             log("Raid class switched to <b>" + card.querySelector(".cname").textContent + "</b>.", "sys");
           });
         });
@@ -743,6 +801,11 @@
           if (dmg > state.best) state.best = dmg;
           state.charge = 0;
           renderCharge();
+          store.week.damage += dmg;
+          store.week.hits += 1;
+          if (dmg > store.week.best) store.week.best = dmg;
+          saveStore();
+          renderWeek();
 
           $("myDamage").textContent = fmtInt(state.myDamage);
           $("myHits").textContent = fmtInt(state.hits);
@@ -770,10 +833,19 @@
           else if (state.hits % 10 === 0) log("Your total attacks reached <b>" + state.hits + "</b> — cumulative damage " + fmtInt(state.myDamage) + ".", "sys");
         });
 
-        // boot: paint snapshot immediately, then go live
-        render(SNAPSHOT, false);
-        log("Connected to the arena. This week's boss: <b>The Gnawfather</b>, Block Boss #" + (Number(SNAPSHOT.blockHeight) + 1) + ". Its HP is the on-chain block progress.", "sys");
-        log("Initial data loaded from the API snapshot taken at 23:27 WIB, 7 Nov 2026, then refreshed live every ±15 seconds.", "sys");
+        // boot: show a connecting state until the first live poll lands.
+        // The baked snapshot is only painted if the API cannot be reached
+        // at all (see poll's catch) — never as if it were live data.
+        $("stConn").innerHTML = "Connecting to the live API…";
+        // restore saved class + weekly totals
+        cards.forEach(function (c) {
+          var on = c.getAttribute("data-class") === state.cls;
+          c.classList.toggle("sel", on);
+          c.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        renderWeek();
+        log("Connected to the arena. This week's boss: <b>The Gnawfather</b>. Its HP is the on-chain block progress.", "sys");
+        log("Connecting to the live API — wheel and boss numbers appear once the first poll lands, then refresh every ±15 seconds.", "sys");
         poll();
         setInterval(poll, 15000);
         tick();
